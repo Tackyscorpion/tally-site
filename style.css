@@ -35,31 +35,29 @@ section:last-of-type { border-bottom: 0; }
 h2 { font-size: clamp(30px, 4vw, 48px); line-height: 1.05; letter-spacing: -0.035em; margin: 0 0 14px; font-weight: 800; max-width: 14em; }
 p.sub { color: var(--muted); font-size: 19px; margin: 0 0 48px; max-width: 34em; }
 
-/* steps: numbered rows with rules, no boxes */
-.steps { border-top: 1px solid var(--rule-strong); }
-.step { display: grid; grid-template-columns: 90px 1fr; gap: 24px; padding: 30px 0; border-bottom: 1px solid var(--rule); align-items: start; }
-.step .num { font-size: 15px; color: var(--muted); font-variant-numeric: tabular-nums; padding-top: 6px; letter-spacing: .04em; }
-.step h3 { margin: 0 0 6px; font-size: 24px; letter-spacing: -0.02em; font-weight: 700; }
-.step p { margin: 0; color: var(--muted); font-size: 17px; max-width: 36em; }
-@media (max-width: 560px) { .step { grid-template-columns: 1fr; gap: 6px; } }
+/* steps: cards, plain numbers */
+.steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 16px; }
+.step { border: 1px solid var(--rule); border-radius: 16px; padding: 26px 24px 28px; background: var(--bg); }
+.step .num { font-size: 14px; color: var(--muted); font-variant-numeric: tabular-nums; letter-spacing: .06em; margin-bottom: 18px; }
+.step h3 { margin: 0 0 8px; font-size: 21px; letter-spacing: -0.02em; font-weight: 700; }
+.step p { margin: 0; color: var(--muted); font-size: 16px; line-height: 1.55; }
 
-/* two-column facts */
-.facts { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0 56px; border-top: 1px solid var(--rule-strong); }
-.fact { padding: 28px 0; border-bottom: 1px solid var(--rule); }
-.fact h3 { margin: 0 0 6px; font-size: 20px; letter-spacing: -0.015em; font-weight: 700; }
-.fact p { margin: 0; color: var(--muted); font-size: 16.5px; }
+/* facts: cards */
+.facts { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+.fact { border: 1px solid var(--rule); border-radius: 16px; padding: 26px 24px 28px; background: var(--bg); }
+.fact h3 { margin: 0 0 8px; font-size: 20px; letter-spacing: -0.015em; font-weight: 700; }
+.fact p { margin: 0; color: var(--muted); font-size: 16px; line-height: 1.55; }
 @media (max-width: 720px) { .facts { grid-template-columns: 1fr; } }
 
-/* plans: a table with rules */
-.plans { border-top: 1px solid var(--rule-strong); }
-.plan { display: grid; grid-template-columns: 1.1fr 1.6fr 1fr auto; gap: 20px; align-items: center; padding: 28px 0; border-bottom: 1px solid var(--rule); }
-.plan .name { font-size: 26px; font-weight: 800; letter-spacing: -0.025em; }
-.plan .name small { display: block; font-size: 14px; font-weight: 500; color: var(--muted); letter-spacing: 0; margin-top: 2px; }
-.plan .calls { color: var(--muted); font-size: 17px; }
-.plan .price { font-size: 26px; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
-.plan .price small { font-size: 14px; color: var(--muted); font-weight: 500; margin-left: 4px; }
-.plan .btn { justify-self: end; }
-@media (max-width: 760px) { .plan { grid-template-columns: 1fr 1fr; } .plan .calls { grid-column: 1 / -1; } .plan .btn { justify-self: start; } }
+/* plans: cards */
+.plans { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; align-items: stretch; }
+.plan { border: 1px solid var(--rule); border-radius: 16px; padding: 28px 24px; background: var(--bg); display: flex; flex-direction: column; }
+.plan .name { font-size: 26px; font-weight: 800; letter-spacing: -0.025em; line-height: 1.1; }
+.plan .name small { display: block; font-size: 14px; font-weight: 500; color: var(--muted); letter-spacing: 0; margin-top: 6px; }
+.plan .calls { color: var(--muted); font-size: 16px; margin: 16px 0 22px; line-height: 1.5; }
+.plan .price { font-size: 34px; font-weight: 800; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; margin-bottom: 22px; }
+.plan .price small { font-size: 14px; color: var(--muted); font-weight: 500; margin-left: 6px; letter-spacing: 0; }
+.plan .btn { margin-top: auto; text-align: center; }
 p.trial { color: var(--muted); margin: 22px 0 0; font-size: 15px; }
 
 /* closing */
