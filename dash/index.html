@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-hC1nAA6rbk5tXti7ejQ5bmaOWM69o/d7uLDyznyCMEs='; style-src 'unsafe-inline'; connect-src https://phpnyjqkagmpomwafugh.supabase.co; img-src data:; base-uri 'none'; form-action 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex, nofollow">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Tally numbers">
+<meta name="color-scheme" content="light dark">
+<title>Tally numbers</title>
+<style>
+:root {
+  --bg: #f6f6f3; --card: #ffffff; --ink: #16181d; --muted: #6b6f78; --line: #e4e4df;
+  --accent: #2f6fde; --good: #1f8a4c; --warn: #b45309;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #0f1013; --card: #191b20; --ink: #eceef2; --muted: #9aa0ab; --line: #2a2d34;
+          --accent: #6ea0ff; --good: #4cc27f; --warn: #f0a24a; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+       font: 15px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+       padding: max(16px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom)); }
+main { max-width: 760px; margin: 0 auto; }
+header { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 12px; }
+h1 { font-size: 22px; margin: 0; }
+h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 22px 0 8px; font-weight: 600; }
+#status { color: var(--muted); font-size: 13px; text-align: right; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.tile { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px; }
+.tile .label { color: var(--muted); font-size: 12px; }
+.tile .value { font-size: 26px; font-weight: 650; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.tile .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.sparks { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+.spark { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+.spark .top { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
+.spark .top b { color: var(--ink); font-size: 15px; font-variant-numeric: tabular-nums; }
+.spark svg { display: block; width: 100%; height: 44px; margin-top: 6px; }
+.spark .line { fill: none; stroke: var(--accent); stroke-width: 1.6; vector-effect: non-scaling-stroke; }
+.spark .area { fill: var(--accent); opacity: .12; }
+.spark .base { stroke: var(--line); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.tablewrap { background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
+th, td { padding: 7px 10px; text-align: left; white-space: nowrap; border-bottom: 1px solid var(--line); }
+th { color: var(--muted); font-weight: 600; font-size: 12px; }
+tr:last-child td { border-bottom: 0; }
+.st-answered { color: var(--good); } .st-missed { color: var(--warn); }
+.note { color: var(--muted); font-size: 12px; margin-top: 18px; }
+.msg { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+label.toggle { display: flex; gap: 8px; align-items: center; color: var(--muted); font-size: 13px; margin-top: 18px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Tally</h1>
+    <div id="status" role="status" aria-live="polite">Loading…</div>
+  </header>
+  <div id="app"></div>
+  <label class="toggle"><input type="checkbox" id="internal"> Include test accounts</label>
+  <p class="note">Days run on Dubai time; call days are each person's own day. MRR is US list price before Apple's cut. Paying on past days is an estimate until daily snapshots build up. Activity counts a call answered, a text to the coach, or a task changed; a task changed again later only counts its latest day. Deleted accounts drop out of every number except "accounts deleted".</p>
+</main>
+<script>
+(function () {
+  "use strict";
+  var ENDPOINT = "https://phpnyjqkagmpomwafugh.supabase.co/functions/v1/dashboard";
+  var KEY = "tally.dash.token";
+  var INTERNAL = "tally.dash.internal";
+  var REFRESH_MS = 5 * 60 * 1000;
+
+  function store(k, v) { try { if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) {} }
+  function load(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+
+  // The key lives in the fragment (#t=...), which is never sent to a server
+  // or in a referrer. It stays in the address bar on purpose: Add to Home
+  // Screen saves the current URL, and a Home Screen web app has storage of its
+  // own, separate from Safari's. localStorage is only a fallback.
+  var m = /(?:^|[#&])t=([A-Za-z0-9_-]{32,256})(?:&|$)/.exec(location.hash);
+  var fragmentKey = m ? m[1] : null;
+  if (fragmentKey) store(KEY, fragmentKey);
+
+  var app = document.getElementById("app");
+  var statusEl = document.getElementById("status");
+  var internalBox = document.getElementById("internal");
+  internalBox.checked = load(INTERNAL) === "1";
+  internalBox.addEventListener("change", function () { store(INTERNAL, internalBox.checked ? "1" : null); refresh(); });
+
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined && text !== null) e.textContent = String(text);
+    return e;
+  }
+  function finite(v) { if (v === null || v === undefined || v === "") return null; var n = Number(v); return isFinite(n) ? n : null; }
+  function num(v) { var n = finite(v); return n === null ? "–" : n.toLocaleString("en-US"); }
+  function pct(v) { var n = finite(v); return n === null ? "–" : Math.round(n * 100) + "%"; }
+  function usd(v) { var n = finite(v); return n === null ? "–" : "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+  function message(text) { app.replaceChildren(el("div", "msg", text)); }
+
+  function tile(label, value, sub) {
+    var t = el("div", "tile");
+    t.append(el("div", "label", label), el("div", "value", value));
+    if (sub) t.append(el("div", "sub", sub));
+    return t;
+  }
+
+  var SVG = "http://www.w3.org/2000/svg";
+  function spark(label, values, fmt) {
+    var box = el("div", "spark");
+    var top = el("div", "top");
+    var last = values.length ? values[values.length - 1] : null;
+    var total = values.reduce(function (a, v) { return a + (finite(v) || 0); }, 0);
+    top.append(el("span", null, label + " · 30 days"), el("b", null, fmt(label, last, total)));
+    box.append(top);
+    var w = 300, h = 44, n = values.length;
+    var nums = values.map(function (v) { return finite(v) || 0; });
+    var peak = Math.max.apply(null, nums.concat([0]));
+    var max = Math.max(peak, 1);
+    var svg = document.createElementNS(SVG, "svg");
+    svg.setAttribute("viewBox", "0 0 " + w + " " + h);
+    svg.setAttribute("preserveAspectRatio", "none");
+    svg.setAttribute("role", "img");
+    svg.setAttribute("aria-label", label + ", last 30 days, highest " + peak);
+    var pts = nums.map(function (v, i) {
+      var x = n > 1 ? (i / (n - 1)) * w : w / 2;
+      var y = h - 2 - (v / max) * (h - 6);
+      return x.toFixed(1) + "," + y.toFixed(1);
+    });
+    var base = document.createElementNS(SVG, "line");
+    base.setAttribute("class", "base");
+    base.setAttribute("x1", "0"); base.setAttribute("x2", String(w));
+    base.setAttribute("y1", String(h - 1)); base.setAttribute("y2", String(h - 1));
+    svg.append(base);
+    if (pts.length) {
+      var area = document.createElementNS(SVG, "polygon");
+      area.setAttribute("class", "area");
+      area.setAttribute("points", "0," + h + " " + pts.join(" ") + " " + w + "," + h);
+      var line = document.createElementNS(SVG, "polyline");
+      line.setAttribute("class", "line");
+      line.setAttribute("points", pts.join(" "));
+      svg.append(area, line);
+    }
+    box.append(svg);
+    return box;
+  }
+
+  function table(headers, rows) {
+    var wrap = el("div", "tablewrap");
+    var t = el("table");
+    var thead = el("thead"), hr = el("tr");
+    headers.forEach(function (h) { var th = el("th", null, h); th.setAttribute("scope", "col"); hr.append(th); });
+    thead.append(hr);
+    var tb = el("tbody");
+    rows.forEach(function (r) {
+      var tr = el("tr");
+      r.forEach(function (c) {
+        var td = el("td", c && c.cls ? c.cls : null, c && typeof c === "object" ? c.text : c);
+        tr.append(td);
+      });
+      tb.append(tr);
+    });
+    t.append(thead, tb);
+    wrap.append(t);
+    return wrap;
+  }
+
+  function when(iso) {
+    var d = new Date(iso);
+    return isNaN(d) ? "–" : d.toLocaleString("en-GB", { timeZone: "Asia/Dubai", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  }
+  function statusCell(s) {
+    var cls = (s === "completed" || s === "dropped" || s === "in_progress") ? "st-answered"
+            : (s === "missed" || s === "missed_final" || s === "declined" || s === "push_failed") ? "st-missed" : null;
+    return { text: s, cls: cls };
+  }
+
+  function render(d) {
+    if (!d || typeof d !== "object") throw said("Couldn't show the numbers.");
+    var h = d.headline || {};
+    var s = Array.isArray(d.series) ? d.series.filter(function (r) { return r && typeof r === "object"; }) : [];
+    var out = [];
+
+    out.push(el("h2", null, "Today"));
+    var tiles = el("div", "tiles");
+    tiles.append(
+      tile("Paying", num(h.paying), num(h.cancelling) + " cancelling · " + num(h.complimentary) + " complimentary"),
+      tile("MRR (list, USD)", usd(h.mrr_usd)),
+      tile("Onboarded", num(h.customers), num(h.signups_total) + " signed up"),
+      tile("Calls answered", num(h.slots_answered_week), "this week, from Monday (" + num(h.calls_answered_week) + " calls)"),
+      tile("Answer rate", pct(h.slot_answer_rate_week), pct(h.slot_answer_rate_30d) + " over 30 days"),
+      tile("Active today", num(h.dau), num(h.wau) + " in 7 days · " + num(h.mau) + " in 30"),
+      tile("Churn, 30 days", pct(h.churn_30d), num(h.deletions_30d) + " accounts deleted")
+    );
+    out.push(tiles);
+
+    out.push(el("h2", null, "Last 30 days"));
+    var sp = el("div", "sparks");
+    function col(k) { return s.map(function (r) { return r[k]; }); }
+    function sumFmt(label, last, total) { return num(total) + " total"; }
+    function lastFmt(label, last) { return num(last) + " today"; }
+    sp.append(
+      spark("Signups", col("signups"), sumFmt),
+      spark("Active people", col("active"), lastFmt),
+      spark("Calls answered", col("answered"), sumFmt),
+      spark("Paying", col("paying"), lastFmt)
+    );
+    out.push(sp);
+
+    out.push(el("h2", null, "Funnel, all time"));
+    out.push(table(["Signed up", "Onboarded", "Set up tasks", "First daily call"],
+      [[num(h.signups_total), num(h.customers), num(h.funnel_setup_completed), num(h.funnel_first_daily_call)]]));
+
+    if (Array.isArray(d.mrr)) {
+      out.push(el("h2", null, "Plans"));
+      out.push(table(["Plan", "Paying", "Price", "MRR"], d.mrr.map(function (r) {
+        return [r.plan, num(r.paying_users), usd(r.usd_monthly), usd(r.mrr_usd)];
+      })));
+    }
+
+    if (Array.isArray(d.retention) && d.retention.length) {
+      out.push(el("h2", null, "Retention by onboarding week"));
+      out.push(table(["Week of", "People", "Week 1", "Week 2", "Week 4"], d.retention.map(function (r) {
+        function share(v) { return v === null || v === undefined ? "–" : num(v) + " (" + pct(r.cohort_size ? v / r.cohort_size : null) + ")"; }
+        return [r.cohort_week, num(r.cohort_size), share(r.active_w1), share(r.active_w2), share(r.active_w4)];
+      })));
+    }
+
+    out.push(el("h2", null, "Last 20 calls"));
+    var calls = Array.isArray(d.recent_calls) ? d.recent_calls.filter(function (c) { return c && typeof c === "object"; }) : [];
+    out.push(calls.length ? table(["When", "Person", "Kind", "Outcome", "Length", "Marks"], calls.map(function (c) {
+      var kind = (c.coach_mode === "setup" ? "setup" : "daily") + (c.trigger === "manual" ? " · manual" : "");
+      var len = c.duration_sec ? Math.round(c.duration_sec / 60 * 10) / 10 + " min" : "–";
+      var outcome = c.status === "skipped" && c.skip_reason ? "skipped (" + String(c.skip_reason).replace("_", " ") + ")" : c.status;
+      var cell = statusCell(c.status); cell.text = outcome;
+      return [when(c.scheduled_for), c.user_ref, kind, cell, len, c.post_call_state || "–"];
+    })) : el("div", "msg", "No calls yet."));
+
+    if (d.purges_30d && Number(d.purges_30d.purges) > 0) {
+      out.push(el("p", "note", "Abandoned-onboarding purges in 30 days: " + num(d.purges_30d.purges) + "."));
+    }
+
+    app.replaceChildren.apply(app, out);
+    statusEl.textContent = "Updated " + when(d.as_of) + (d.include_internal ? " · with test accounts" : "");
+  }
+
+  var busy = false, again = false;
+  var OFFLINE = { offline: true };
+  // Only messages the page wrote itself are shown; anything else (a browser's
+  // abort or JSON error text, a bug in render) reads "Couldn't show the numbers."
+  function said(text) { var e = new Error(text); e.said = true; return e; }
+  function refresh() {
+    var token = fragmentKey || load(KEY);
+    if (!token) { statusEl.textContent = ""; message("Open the dashboard link with its key."); return; }
+    if (busy) { again = true; return; }   // e.g. the toggle changed mid-load: run once more after
+    busy = true;
+    statusEl.textContent = "Updating…";
+    var ctl = typeof AbortController === "function" ? new AbortController() : null;
+    var timer = ctl ? setTimeout(function () { ctl.abort(); }, 20000) : null;
+    fetch(ENDPOINT + (internalBox.checked ? "?internal=1" : ""), {
+      headers: { "x-dashboard-token": token }, cache: "no-store", referrerPolicy: "no-referrer", credentials: "omit",
+      signal: ctl ? ctl.signal : undefined
+    }).catch(function () {
+      // Only fetch's own rejection (network down, or the 20 s timeout) is "offline".
+      throw OFFLINE;
+    }).then(function (r) {
+      if (r.status === 404) { store(KEY, null); fragmentKey = null; throw said("Key not accepted. Open the newest dashboard link."); }
+      if (!r.ok) throw said("Couldn't load the numbers. It will try again in 5 minutes.");
+      return r.json();
+    }).then(render).catch(function (e) {
+      statusEl.textContent = "";
+      message(e === OFFLINE ? "Offline. Trying again in 5 minutes."
+              : (e && e.said ? e.message : "Couldn't show the numbers."));
+    }).then(function () {
+      if (timer) clearTimeout(timer);
+      busy = false;
+      // A refresh asked for mid-load runs now, unless the key was just refused.
+      if (again) { again = false; if (fragmentKey || load(KEY)) refresh(); }
+    });
+  }
+
+  refresh();
+  setInterval(function () { if (document.visibilityState === "visible") refresh(); }, REFRESH_MS);
+  document.addEventListener("visibilitychange", function () { if (document.visibilityState === "visible") refresh(); });
+})();
+</script>
+</body>
+</html>
