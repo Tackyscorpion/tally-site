@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-hC1nAA6rbk5tXti7ejQ5bmaOWM69o/d7uLDyznyCMEs='; style-src 'unsafe-inline'; connect-src https://phpnyjqkagmpomwafugh.supabase.co; img-src data:; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-xiam/qku6nGdZfOZ0/PHuA8FB7stZjPLa4lZdWraEng='; style-src 'unsafe-inline'; connect-src https://phpnyjqkagmpomwafugh.supabase.co; img-src data:; base-uri 'none'; form-action 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="referrer" content="no-referrer">
 <meta name="robots" content="noindex, nofollow">
@@ -50,6 +50,14 @@ tr:last-child td { border-bottom: 0; }
 .note { color: var(--muted); font-size: 12px; margin-top: 18px; }
 .msg { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
 label.toggle { display: flex; gap: 8px; align-items: center; color: var(--muted); font-size: 13px; margin-top: 18px; }
+.tabs { display: flex; gap: 6px; margin-bottom: 4px; }
+.tabs button, button.link { font: inherit; font-size: 14px; color: var(--ink); background: var(--card); border: 1px solid var(--line);
+                            border-radius: 999px; padding: 6px 14px; cursor: pointer; }
+.tabs button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.ref { font: inherit; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; color: var(--accent);
+             background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; }
+button.link { margin-bottom: 4px; }
+td.props { white-space: normal; min-width: 160px; color: var(--muted); }
 </style>
 </head>
 <body>
@@ -58,9 +66,14 @@ label.toggle { display: flex; gap: 8px; align-items: center; color: var(--muted)
     <h1>Tally</h1>
     <div id="status" role="status" aria-live="polite">Loading…</div>
   </header>
+  <nav class="tabs" aria-label="Sections">
+    <button type="button" id="tab-overview" aria-pressed="true">Overview</button>
+    <button type="button" id="tab-users" aria-pressed="false">Users</button>
+  </nav>
   <div id="app"></div>
   <label class="toggle"><input type="checkbox" id="internal"> Include test accounts</label>
-  <p class="note">Days run on Dubai time; call days are each person's own day. MRR is US list price before Apple's cut. Paying on past days is an estimate until daily snapshots build up. Activity counts a call answered, a text to the coach, or a task changed; a task changed again later only counts its latest day. Deleted accounts drop out of every number except "accounts deleted".</p>
+  <p class="note" id="note-overview">Days run on Dubai time; call days are each person's own day. MRR is US list price before Apple's cut. Paying on past days is an estimate until daily snapshots build up. Activity counts a call answered, a text to the coach, or a task changed; a task changed again later only counts its latest day. Deleted accounts drop out of every number except "accounts deleted".</p>
+  <p class="note" id="note-users" hidden>Users counts what the app reports: screens opened and key actions, never task text. A person shows here once their app has sent an event; events are kept 180 days. Days run on Dubai time. People are shown by the first 8 characters of their id.</p>
 </main>
 <script>
 (function () {
@@ -68,6 +81,8 @@ label.toggle { display: flex; gap: 8px; align-items: center; color: var(--muted)
   var ENDPOINT = "https://phpnyjqkagmpomwafugh.supabase.co/functions/v1/dashboard";
   var KEY = "tally.dash.token";
   var INTERNAL = "tally.dash.internal";
+  var TAB = "tally.dash.tab";
+  var REF = /^[0-9a-f]{8}$/;
   var REFRESH_MS = 5 * 60 * 1000;
 
   function store(k, v) { try { if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) {} }
@@ -86,6 +101,44 @@ label.toggle { display: flex; gap: 8px; align-items: center; color: var(--muted)
   var internalBox = document.getElementById("internal");
   internalBox.checked = load(INTERNAL) === "1";
   internalBox.addEventListener("change", function () { store(INTERNAL, internalBox.checked ? "1" : null); refresh(); });
+
+  // Which view is on screen: the overview, the Users tab, or one person
+  // (their 8-hex ref, as the server sent it). Each is one request.
+  var tab = load(TAB) === "users" ? "users" : "overview";
+  var person = null;
+  var tabOverview = document.getElementById("tab-overview");
+  var tabUsers = document.getElementById("tab-users");
+  var noteOverview = document.getElementById("note-overview");
+  var noteUsers = document.getElementById("note-users");
+  function paintTabs() {
+    tabOverview.setAttribute("aria-pressed", String(tab === "overview"));
+    tabUsers.setAttribute("aria-pressed", String(tab === "users"));
+    noteOverview.hidden = tab !== "overview";
+    noteUsers.hidden = tab !== "users";
+  }
+  function setTab(t) {
+    if (t === tab && !person) return;
+    tab = t; person = null;
+    store(TAB, t === "users" ? "users" : null);
+    paintTabs(); message("Loading…"); refresh();
+  }
+  function openPerson(ref) {
+    if (!REF.test(String(ref))) return;
+    person = String(ref);
+    message("Loading…"); refresh();
+  }
+  function closePerson() { person = null; message("Loading…"); refresh(); }
+  tabOverview.addEventListener("click", function () { setTab("overview"); });
+  tabUsers.addEventListener("click", function () { setTab("users"); });
+  paintTabs();
+  function viewKey() { return person ? "person:" + person : tab; }
+  function viewQuery() {
+    var q = [];
+    if (person) q.push("user=" + encodeURIComponent(person));
+    else if (tab === "users") q.push("view=users");
+    if (internalBox.checked) q.push("internal=1");
+    return q.length ? "?" + q.join("&") : "";
+  }
 
   function el(tag, cls, text) {
     var e = document.createElement(tag);
@@ -156,6 +209,7 @@ label.toggle { display: flex; gap: 8px; align-items: center; color: var(--muted)
     rows.forEach(function (r) {
       var tr = el("tr");
       r.forEach(function (c) {
+        if (c instanceof Node) { var tn = el("td"); tn.append(c); tr.append(tn); return; }
         var td = el("td", c && c.cls ? c.cls : null, c && typeof c === "object" ? c.text : c);
         tr.append(td);
       });
@@ -176,8 +230,106 @@ label.toggle { display: flex; gap: 8px; align-items: center; color: var(--muted)
     return { text: s, cls: cls };
   }
 
-  function render(d) {
+  function rows(v) { return Array.isArray(v) ? v.filter(function (r) { return r && typeof r === "object"; }) : []; }
+  function stamp(d) {
+    statusEl.textContent = "Updated " + when(d.as_of) + (d.include_internal ? " · with test accounts" : "");
+  }
+
+  function render(want, d) {
+    if (want !== viewKey()) return;   // the view changed mid-load; its own request follows
     if (!d || typeof d !== "object") throw said("Couldn't show the numbers.");
+    if (want === "overview") renderOverview(d);
+    else if (want === "users") renderUsers(d);
+    else renderPerson(d);
+  }
+
+  var STEPS = { "onboarding.start": "Started onboarding", "setup_call": "Took the setup call",
+                "paywall.view": "Saw the paywall", "purchase.complete": "Bought" };
+  function renderUsers(d) {
+    var u = d.usage && typeof d.usage === "object" ? d.usage : {};
+    var out = [];
+    out.push(el("h2", null, "Usage"));
+    var sp = el("div", "sparks");
+    sp.append(spark("People using the app", rows(u.dau).map(function (r) { return r.active; }),
+                    function (label, last) { return num(last) + " today"; }));
+    out.push(sp);
+
+    var funnel = rows(u.funnel);
+    if (funnel.length) {
+      out.push(el("h2", null, "Funnel, from app events"));
+      out.push(table(funnel.map(function (f) { return STEPS[f.step] || String(f.step); }),
+                     [funnel.map(function (f) { return num(f.users); })]));
+    }
+
+    var screens = rows(u.top_screens);
+    out.push(el("h2", null, "Top screens, 7 days"));
+    out.push(screens.length ? table(["Screen", "Views", "People"], screens.map(function (r) {
+      return [r.screen, num(r.views), num(r.users)];
+    })) : el("div", "msg", "No screen views yet."));
+
+    var events = rows(u.top_events);
+    out.push(el("h2", null, "Top events, 7 days"));
+    out.push(events.length ? table(["Event", "Count", "People"], events.map(function (r) {
+      return [r.name, num(r.events), num(r.users)];
+    })) : el("div", "msg", "No events yet."));
+
+    var people = rows(d.users);
+    out.push(el("h2", null, "People, most recent first"));
+    out.push(people.length ? table(["Person", "First seen", "Last seen", "Events, 7 days", "Sessions", "Top screen", "Version"],
+      people.map(function (p) {
+        var ref = String(p.user_ref);
+        var cell = REF.test(ref) ? el("button", "ref", ref) : ref;
+        if (typeof cell !== "string") {
+          cell.type = "button";
+          cell.setAttribute("aria-label", "Events of person " + ref);
+          cell.addEventListener("click", function () { openPerson(ref); });
+        }
+        var top = rows(p.top_screens_7d)[0];
+        return [cell, when(p.first_seen), when(p.last_seen), num(p.events_7d), num(p.sessions_7d),
+                top ? top.screen + " (" + num(top.views) + ")" : "–", p.app_version || "–"];
+      })) : el("div", "msg", "Nobody has used a build with usage events yet."));
+
+    app.replaceChildren.apply(app, out);
+    stamp(d);
+  }
+
+  function details(p) {
+    if (!p || typeof p !== "object" || Array.isArray(p)) return "";
+    return Object.keys(p).map(function (k) { return k + " = " + String(p[k]); }).join(" · ");
+  }
+  function renderPerson(d) {
+    var out = [];
+    var back = el("button", "link", "← All people");
+    back.type = "button";
+    back.addEventListener("click", closePerson);
+    out.push(back);
+    var u = d.user && typeof d.user === "object" ? d.user : null;
+    if (!u) {
+      out.push(el("div", "msg", d.ambiguous ? "More than one person's id starts with " + person + "."
+                                            : "No events for " + person + " (with test accounts hidden, test accounts don't show)."));
+      app.replaceChildren.apply(app, out);
+      stamp(d);
+      return;
+    }
+    out.push(el("h2", null, "Person " + u.user_ref));
+    var tiles = el("div", "tiles");
+    tiles.append(
+      tile("Last seen", when(u.last_seen), "first seen " + when(u.first_seen)),
+      tile("Events, 7 days", num(u.events_7d), num(u.sessions_7d) + " sessions"),
+      tile("App version", u.app_version || "–")
+    );
+    out.push(tiles);
+    var ev = rows(d.events);
+    out.push(el("h2", null, "Last " + ev.length + " events"));
+    out.push(ev.length ? table(["When", "Event", "Screen", "Details", "Version", "Session"], ev.map(function (e) {
+      return [when(e.occurred_at), e.name, e.screen || "–", { text: details(e.props) || "–", cls: "props" },
+              e.app_version || "–", e.session_ref || "–"];
+    })) : el("div", "msg", "No events."));
+    app.replaceChildren.apply(app, out);
+    stamp(d);
+  }
+
+  function renderOverview(d) {
     var h = d.headline || {};
     var s = Array.isArray(d.series) ? d.series.filter(function (r) { return r && typeof r === "object"; }) : [];
     var out = [];
@@ -242,7 +394,7 @@ label.toggle { display: flex; gap: 8px; align-items: center; color: var(--muted)
     }
 
     app.replaceChildren.apply(app, out);
-    statusEl.textContent = "Updated " + when(d.as_of) + (d.include_internal ? " · with test accounts" : "");
+    stamp(d);
   }
 
   var busy = false, again = false;
@@ -255,10 +407,11 @@ label.toggle { display: flex; gap: 8px; align-items: center; color: var(--muted)
     if (!token) { statusEl.textContent = ""; message("Open the dashboard link with its key."); return; }
     if (busy) { again = true; return; }   // e.g. the toggle changed mid-load: run once more after
     busy = true;
+    var want = viewKey();
     statusEl.textContent = "Updating…";
     var ctl = typeof AbortController === "function" ? new AbortController() : null;
     var timer = ctl ? setTimeout(function () { ctl.abort(); }, 20000) : null;
-    fetch(ENDPOINT + (internalBox.checked ? "?internal=1" : ""), {
+    fetch(ENDPOINT + viewQuery(), {
       headers: { "x-dashboard-token": token }, cache: "no-store", referrerPolicy: "no-referrer", credentials: "omit",
       signal: ctl ? ctl.signal : undefined
     }).catch(function () {
@@ -268,7 +421,7 @@ label.toggle { display: flex; gap: 8px; align-items: center; color: var(--muted)
       if (r.status === 404) { store(KEY, null); fragmentKey = null; throw said("Key not accepted. Open the newest dashboard link."); }
       if (!r.ok) throw said("Couldn't load the numbers. It will try again in 5 minutes.");
       return r.json();
-    }).then(render).catch(function (e) {
+    }).then(function (d) { render(want, d); }).catch(function (e) {
       statusEl.textContent = "";
       message(e === OFFLINE ? "Offline. Trying again in 5 minutes."
               : (e && e.said ? e.message : "Couldn't show the numbers."));
